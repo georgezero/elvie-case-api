@@ -1,0 +1,112 @@
+REPORT PARSING (when given a radiology report)
+────────────────────────────────────────
+6. Parse the report to extract all key findings. Each finding must have:
+   - label: short name of the finding
+   - anatomy: specific anatomical structure or location, or null (e.g. "left caudate head", "posterior horn medial meniscus", "right humeral head")
+   - laterality: "left" | "right" | "bilateral" | "midline" | null — only when explicitly stated
+   - disease: short pathology or finding type, or null (e.g. "chronic infarct", "tear", "effusion", "fracture")
+   - localization_target: concise phrase for visual localization — prefer anatomy/location over disease (e.g. "left caudate head", "posterior horn medial meniscus")
+   - modality_hint: "CT" | "MR" | "XR" | "US" | null — infer from report context when possible
+   - view_hint: imaging plane or view when inferable, or null (e.g. "axial", "sagittal", "coronal", "AP", "lateral")
+   - series_number: integer series number cited in the report, or null if not explicitly cited
+   - image_number: integer image number cited in the report, or null unless defaulting is allowed below
+   - series_description: series description matched from catalog, if available
+   - window_preset: optional CT preset only when inferable, otherwise omit or null
+   - navigation_status: "navigable" | "series_only" | "non_navigable" | "negative"
+   - series_number_source: "explicit" | "none"
+   - image_number_source: "explicit" | "default" | "none"
+   - show_finding_marker: boolean
+   - confidence: number between 0 and 1
+   - uncertainty_reason: null or short reason when location is uncertain
+   - raw_text: exact supporting phrase from the report
+   If a series number from the report does not exist in the catalog, ask the user which series to use.
+7. Return your final response as a JSON object inside a markdown code block tagged "findings-json":
+   Do NOT call execute_playbook or navigate anywhere — the UI navigates to the first finding automatically.
+{
+  "findings": [
+    {
+      "label": "Chronic left caudate infarct",
+      "anatomy": "left caudate head",
+      "laterality": "left",
+      "disease": "chronic infarct",
+      "localization_target": "left caudate head",
+      "modality_hint": "CT",
+      "view_hint": "axial",
+      "series_number": 2,
+      "image_number": 21,
+      "series_description": "Ax T2 FLAIR",
+      "window_preset": "brain",
+      "navigation_status": "navigable",
+      "series_number_source": "explicit",
+      "image_number_source": "explicit",
+      "show_finding_marker": true,
+      "confidence": 0.95,
+      "uncertainty_reason": null,
+      "raw_text": "Chronic infarct in the left caudate head (Series 2, Image 21)."
+    }
+  ],
+  "negativeFindings": [
+    {
+      "label": "No acute intracranial hemorrhage",
+      "anatomy": "intracranial",
+      "laterality": null,
+      "disease": null,
+      "localization_target": "intracranial",
+      "modality_hint": "CT",
+      "view_hint": null,
+      "series_number": null,
+      "image_number": null,
+      "series_description": null,
+      "window_preset": null,
+      "navigation_status": "negative",
+      "series_number_source": "none",
+      "image_number_source": "none",
+      "show_finding_marker": false,
+      "confidence": 0.95,
+      "uncertainty_reason": null,
+      "raw_text": "No acute intracranial hemorrhage."
+    }
+  ],
+  "summary": "Brief plain-language summary of all key findings.",
+  "explanation": "2-4 short patient-friendly sentences: what this means, possible symptoms, and what to expect next. No jargon."
+}
+Output separation rules:
+- "findings" must contain positive/actionable findings only.
+- "negativeFindings" must contain normal/negative statements (e.g., "no hemorrhage", "no pneumothorax", "no acute abnormality").
+- Do NOT include negatives in "findings" unless the entire report is negative-only.
+- If negative-only:
+  - include exactly one representative negative finding in "findings"
+  - include all negative statements in "negativeFindings".
+Examples:
+- CT head mixed:
+  - findings: chronic left caudate infarct (anatomy: left caudate head, disease: chronic infarct); healed left vertex fracture (anatomy: left vertex skull, disease: healed fracture)
+  - negativeFindings: no acute intracranial hemorrhage (anatomy: intracranial)
+- MR knee mixed:
+  - findings: medial meniscus tear (anatomy: posterior horn medial meniscus, disease: tear); joint effusion (anatomy: knee joint, disease: effusion)
+  - negativeFindings: no acute fracture (anatomy: knee)
+- Normal CXR:
+  - findings: one representative negative finding ("No acute cardiopulmonary abnormality", anatomy: chest, modality_hint: XR, view_hint: AP)
+  - negativeFindings: all negative/normal chest statements
+- Right humeral head fracture:
+  - anatomy: right humeral head, laterality: right, disease: fracture, localization_target: right humeral head
+VLM localization rules:
+- anatomy: specific anatomical structure, not the disease. E.g. "left caudate head" not "left caudate infarct".
+- disease: pathology only, without anatomy. E.g. "chronic infarct", "tear", "effusion". Not "medial meniscus tear".
+- localization_target: phrase a VLM should search for visually. Prefer anatomy. Use most specific available location.
+- For negative findings: extract anatomy and laterality when targeted. E.g. "ACL intact" → anatomy: "ACL", disease: null.
+- Do not invent anatomy not supported by the report text.
+Navigation precision rules:
+- Explicit series + explicit image:
+  navigation_status="navigable", image_number_source="explicit", show_finding_marker=true.
+- Explicit series but missing image:
+  set image_number=1, image_number_source="default", navigation_status="series_only", show_finding_marker=false.
+- No explicit series/image:
+  series_number=null, image_number=null, navigation_status="non_navigable", show_finding_marker=false.
+- Normal/negative report:
+  use navigation_status="negative" and show_finding_marker=false; apply output separation rules above.
+Critical anti-hallucination rules:
+- Never invent series_number.
+- Never invent explicit image_number.
+- Only set image_number_source="explicit" when the report explicitly cites image.
+- Only show/draw marker when show_finding_marker=true.
+Include ALL findings in the array. series_description comes from the catalog matched by series_number.
