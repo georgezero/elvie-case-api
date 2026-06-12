@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const PORT      = Number(process.env.PORT) || 8787;
@@ -12,12 +12,43 @@ const app = new Hono();
 // Credentials require a reflected origin (can't use '*' with credentials:true).
 app.use('*', cors({
   origin: (origin) => origin || '*',
-  allowMethods: ['GET', 'OPTIONS'],
+  allowMethods: ['GET', 'PUT', 'OPTIONS'],
   allowHeaders: ['Content-Type'],
   credentials: true,
 }));
 
 app.get('/health', (c) => c.json({ ok: true, casesDir: CASES_DIR }));
+
+app.put('/api/cases/:caseId', async (c) => {
+  const caseId = c.req.param('caseId');
+  if (!/^[A-Za-z0-9_\-]+$/.test(caseId)) {
+    return c.json({ error: 'Invalid caseId' }, 400);
+  }
+
+  let payload: any;
+  try {
+    payload = await c.req.json();
+  } catch {
+    return c.json({ error: 'Request body must be JSON' }, 400);
+  }
+
+  if (payload?.caseId && payload.caseId !== caseId) {
+    return c.json({ error: 'caseId in body must match URL caseId' }, 400);
+  }
+
+  payload = { ...payload, caseId };
+  const filePath = join(CASES_DIR, `${caseId}.json`);
+  const tempPath = join(CASES_DIR, `.${caseId}.${Date.now()}.tmp`);
+
+  try {
+    await mkdir(CASES_DIR, { recursive: true });
+    await writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    await rename(tempPath, filePath);
+    return c.json({ ok: true, caseId, accession: payload.accession || null });
+  } catch (e: any) {
+    return c.json({ error: 'Failed to write case', detail: e.message }, 500);
+  }
+});
 
 // Must be registered before /api/cases/:caseId to prevent "by-accession" being swallowed
 app.get('/api/cases/by-accession/:accession', async (c) => {

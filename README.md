@@ -27,6 +27,7 @@ Copy `.env.example` to `.env`:
 | `GET` | `/health` | Liveness check |
 | `GET` | `/api/cases/:caseId` | Fetch case by file stem |
 | `GET` | `/api/cases/by-accession/:accession` | Fetch case by `accession` field |
+| `PUT` | `/api/cases/:caseId` | Create or replace a case JSON file |
 
 ## Case files
 
@@ -46,6 +47,7 @@ Configure `Case API base URL = http://localhost:8787` in the viewer Settings pan
 ```
 index.html?caseId=json-api-demo-1-ct-head
 index.html?accession=NI9f7fae
+index.html?caseId=wintehr-123&accession=123&caseApiBaseUrl=http://localhost:8787&dicomWebBaseUrl=/orthanc/dicom-web
 ```
 
 ## curl examples
@@ -54,6 +56,9 @@ index.html?accession=NI9f7fae
 curl http://localhost:8787/api/cases/json-api-demo-1-ct-head
 curl http://localhost:8787/api/cases/by-accession/NI9f7fae
 curl http://localhost:8787/health
+curl -X PUT http://localhost:8787/api/cases/wintehr-123 \
+  -H 'Content-Type: application/json' \
+  --data '{"caseId":"wintehr-123","accession":"123","report":{"text":"..."},"findings":[]}'
 ```
 
 ## Parsing reports
